@@ -70,17 +70,46 @@ bool set_lantency_free(void *priv_data, const std::string &name) {
       LOG_ERROR(std::string("nvenc set_lantency_free failed, ret = ") + av_err2str(ret));
       return false;
     }
+    // [LnDesk v260] NVENC smears fast mouse motion on H264/H265: the ffmpeg
+    // default tuning is HIGH_QUALITY, which lets the driver buffer/lookahead
+    // and temporally smooth moving content (VP9 software libvpx is unaffected).
+    // Force the low-latency path: no lookahead depth, zero-latency operation
+    // (no reordering delay) and the driver's ultra-low-latency tuning.
+    // Best-effort on purpose: a future ffmpeg that drops an option must only
+    // cost a log line, never a failed encoder init -- the return-false
+    // contract stays reserved for the options upstream itself sets above.
+    if ((ret = av_opt_set(priv_data, "rc-lookahead", "0", 0)) < 0) {
+      LOG_ERROR(std::string("nvenc set rc-lookahead 0 failed, ret = ") + av_err2str(ret));
+    }
+    if ((ret = av_opt_set(priv_data, "zerolatency", "1", 0)) < 0) {
+      LOG_ERROR(std::string("nvenc set zerolatency 1 failed, ret = ") + av_err2str(ret));
+    }
+    if ((ret = av_opt_set(priv_data, "tune", "ull", 0)) < 0) {
+      LOG_ERROR(std::string("nvenc set tune ull failed, ret = ") + av_err2str(ret));
+    }
   }
   if (name.find("amf") != std::string::npos) {
     if ((ret = av_opt_set(priv_data, "query_timeout", "1000", 0)) < 0) {
       LOG_ERROR(std::string("amf set_lantency_free failed, ret = ") + av_err2str(ret));
       return false;
     }
+    // [LnDesk v260] AMF: ffmpeg 7.1 amfenc_h264/hevc tables have no
+    // rc-lookahead option, so this is a no-op today -- kept best-effort so a
+    // future ffmpeg that adds it gets the intended behavior for free.
+    if ((ret = av_opt_set(priv_data, "rc-lookahead", "0", 0)) < 0) {
+      LOG_ERROR(std::string("amf set rc-lookahead 0 failed, ret = ") + av_err2str(ret));
+    }
   }
   if (name.find("qsv") != std::string::npos) {
     if ((ret = av_opt_set(priv_data, "async_depth", "1", 0)) < 0) {
       LOG_ERROR(std::string("qsv set_lantency_free failed, ret = ") + av_err2str(ret));
       return false;
+    }
+    // [LnDesk v260] QSV: look_ahead exists only on h264_qsv in ffmpeg 7.1
+    // (hevc_qsv lacks it), so this must be best-effort or hevc_qsv would
+    // fail to init.
+    if ((ret = av_opt_set(priv_data, "look_ahead", "0", 0)) < 0) {
+      LOG_ERROR(std::string("qsv set look_ahead 0 failed, ret = ") + av_err2str(ret));
     }
   }
   if (name.find("vaapi") != std::string::npos) {
