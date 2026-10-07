@@ -269,6 +269,20 @@ bool set_rate_control(AVCodecContext *c, const std::string &name, int rc,
     }
   }
 
+  // [LnDesk v274] Widen VBR burst headroom: the encoder default caps the
+  // peak rate near the average, so a sudden full-screen change (window drag,
+  // scrolling) starves detail into block artifacts. Raise rc_max_rate to ~2.5x
+  // the average (with a 2Mbit floor) so fast motion keeps its detail. CBR is
+  // untouched (ffmpeg ignores rc_max_rate in CBR mode). Pure ceiling raise,
+  // never a failed init.
+  if (rc == RC_VBR && c->bit_rate > 0) {
+    int64_t headroom = c->bit_rate * 5 / 2;
+    if (headroom < c->bit_rate + 2000000) {
+      headroom = c->bit_rate + 2000000;
+    }
+    c->rc_max_rate = headroom;
+  }
+
   return true;
 }
 bool set_gpu(void *priv_data, const std::string &name, int gpu) {
