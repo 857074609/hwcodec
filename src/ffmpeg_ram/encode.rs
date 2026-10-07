@@ -213,6 +213,17 @@ impl Encoder {
                     ..Default::default()
                 });
             }
+            // [LnDesk v275] AV1 硬件编码（Quick Sync）。需要 Intel Arc A/B 系列或
+            // Gen12.5+（DG2 / Meteor Lake 及更新）核显；旧核显只有 AV1 解码。
+            #[cfg(windows)]
+            if _intel && contains(Driver::MFX, AV1) {
+                codecs.push(CodecInfo {
+                    name: "av1_qsv".to_owned(),
+                    format: AV1,
+                    priority: Priority::Best as _,
+                    ..Default::default()
+                });
+            }
             if _nv && contains(Driver::NV, H264) {
                 codecs.push(CodecInfo {
                     name: "h264_nvenc".to_owned(),
@@ -225,6 +236,19 @@ impl Encoder {
                 codecs.push(CodecInfo {
                     name: "hevc_nvenc".to_owned(),
                     format: H265,
+                    priority: Priority::Best as _,
+                    ..Default::default()
+                });
+            }
+            // [LnDesk v275] AV1 硬件编码（NVENC）。需要 Ada Lovelace / RTX 40 及更新
+            // （Ampere = RTX 30 只能解不能编）。FFmpeg 侧需 portfile 打开
+            // --enable-encoder=av1_nvenc，否则此处 push 也拿不到编码器。
+            // 放在 H265 之后：format 去重会跳过同格式的后来者，AV1 是新格式不受影响，
+            // 但排后面可让不支持的机器先被 H264/H265 命中，减少无效建流尝试。
+            if _nv && contains(Driver::NV, AV1) {
+                codecs.push(CodecInfo {
+                    name: "av1_nvenc".to_owned(),
+                    format: AV1,
                     priority: Priority::Best as _,
                     ..Default::default()
                 });

@@ -33,7 +33,9 @@ pub fn possible_support_encoders() -> Vec<InnerEncodeContext> {
     if unsafe { nv_encode_driver_support() } != 0 {
         return vec![];
     }
-    let dataFormats = vec![H264, H265];
+    // [LnDesk v275] 加入 AV1：NVIDIA AV1 硬件编码需 Ada Lovelace（RTX 40）及更新。
+    // 仅 libvram 路径使用；ffmpeg_ram 路径见 encode.rs::available_encoders()。
+    let dataFormats = vec![H264, H265, AV1];
     let mut v = vec![];
     for dataFormat in dataFormats.iter() {
         v.push(InnerEncodeContext {
@@ -47,7 +49,9 @@ pub fn possible_support_decoders() -> Vec<InnerDecodeContext> {
     if unsafe { nv_encode_driver_support() } != 0 {
         return vec![];
     }
-    let dataFormats = vec![H264, H265];
+    // [LnDesk v275] 加入 AV1：NVIDIA AV1 硬件编码需 Ada Lovelace（RTX 40）及更新。
+    // 仅 libvram 路径使用；ffmpeg_ram 路径见 encode.rs::available_encoders()。
+    let dataFormats = vec![H264, H265, AV1];
     let mut v = vec![];
     for dataFormat in dataFormats.iter() {
         v.push(InnerDecodeContext {
