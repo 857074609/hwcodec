@@ -531,9 +531,15 @@ int ffmpeg_vram_test_encode(int64_t *outLuids, int32_t *outVendors, int32_t maxD
           continue;
         }
         
+        // [LnDesk v292] v289 widened ffmpeg_vram_new_encoder() to 10 params
+        // (qp_min/qp_max) but this probe call site was left at 8, so the MSVC
+        // build failed with C2660 "does not take 8 arguments". This is a
+        // hardware-availability probe, not a real session, so the QP guard is
+        // passed as 0/0 (disabled) -- exactly what the v289 commit says the
+        // probes do ("Hardware-test probes pass 0/0 (guard disabled)").
         FFmpegVRamEncoder *e = (FFmpegVRamEncoder *)ffmpeg_vram_new_encoder(
             (void *)adapter.get()->device_.Get(), currentLuid,
-            dataFormat, width, height, kbs, framerate, gop);
+            dataFormat, width, height, kbs, framerate, gop, 0, 0);
         if (!e)
           continue;
         if (e->native_->EnsureTexture(e->width_, e->height_)) {

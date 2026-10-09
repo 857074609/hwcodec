@@ -55,10 +55,13 @@ void set_av_codec_ctx(AVCodecContext *c, const std::string &name, int kbs,
   c->color_primaries = AVCOL_PRI_SMPTE170M;
   c->color_trc = AVCOL_TRC_SMPTE170M;
 
+  // [LnDesk v292] FF_PROFILE_* were removed in FFmpeg 8 (libavcodec 62); the
+  // vendored overlay is now 9.0.2 (V275), so use the AV_PROFILE_* names.
+  // Values are identical (H264_HIGH=100, HEVC_MAIN=1).
   if (name.find("h264") != std::string::npos) {
-    c->profile = FF_PROFILE_H264_HIGH;
+    c->profile = AV_PROFILE_H264_HIGH;
   } else if (name.find("hevc") != std::string::npos) {
-    c->profile = FF_PROFILE_HEVC_MAIN;
+    c->profile = AV_PROFILE_HEVC_MAIN;
   }
 }
 

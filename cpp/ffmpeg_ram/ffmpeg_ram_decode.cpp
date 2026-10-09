@@ -212,11 +212,11 @@ private:
       out_++;
       LOG_DEBUG(std::string("delay DO: in:") + in_ + " out:" + out_);
 #endif
-#if FF_API_FRAME_KEY
+      // [LnDesk v292] AVFrame.key_frame was removed in FFmpeg 8 (libavcodec 62)
+      // and FF_API_FRAME_KEY is no longer defined by the vendored 9.0.2 overlay,
+      // so the old #else branch below selected the removed field. Read the flag
+      // unconditionally; AV_FRAME_FLAG_KEY exists in both 7.x and 9.x.
       int key_frame = frame_->flags & AV_FRAME_FLAG_KEY;
-#else
-      int key_frame = frame_->key_frame;
-#endif
 
       callback_(obj, tmp_frame->width, tmp_frame->height,
                 (AVPixelFormat)tmp_frame->format, tmp_frame->linesize,
