@@ -35,6 +35,11 @@ pub struct EncodeContext {
     pub quality: Quality,
     pub kbs: i32,
     pub q: i32,
+    // [LnDesk v289] QP ceiling guard, passed through to the C layer
+    // (0 = disabled). qp_min only matters for nvenc (its set_vbr only enables
+    // the max-QP cap when both qmin and qmax are set).
+    pub qp_min: i32,
+    pub qp_max: i32,
     pub thread_count: i32,
 }
 
@@ -90,6 +95,8 @@ impl Encoder {
                 ctx.quality as _,
                 ctx.kbs,
                 ctx.q,
+                ctx.qp_min,
+                ctx.qp_max,
                 ctx.thread_count,
                 gpu,
                 linesize.as_mut_ptr(),

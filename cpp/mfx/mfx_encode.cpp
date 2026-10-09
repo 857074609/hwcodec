@@ -83,13 +83,17 @@ public:
   int32_t kbs_;
   int32_t framerate_;
   int32_t gop_;
+  // [LnDesk v289] QP guardrail bounds (0 = disabled); applied via
+  // mfxExtCodingOption2 MinQPI/MaxQPI (see resetEncExtParams).
+  int32_t qp_min_;
+  int32_t qp_max_;
 
   bool full_range_ = false;
   bool bt709_ = false;
 
   VplEncoder(void *handle, int64_t luid, DataFormat dataFormat,
              int32_t width, int32_t height, int32_t kbs, int32_t framerate,
-             int32_t gop) {
+             int32_t gop, int32_t qp_min, int32_t qp_max) {
     handle_ = handle;
     luid_ = luid;
     dataFormat_ = dataFormat;
@@ -98,6 +102,8 @@ public:
     kbs_ = kbs;
     framerate_ = framerate;
     gop_ = gop;
+    qp_min_ = qp_min;
+    qp_max_ = qp_max;
   }
 
   ~VplEncoder() {}
@@ -343,7 +349,15 @@ private:
     mfxEncParams_.mfx.InitialDelayInKB = 0;
     mfxEncParams_.mfx.BufferSizeInKB = 512;
     mfxEncParams_.mfx.TargetKbps = kbs_;
-    mfxEncParams_.mfx.MaxKbps = kbs_;
+    // [LnDesk v274-equivalent] widen the VBR peak so fast-motion bursts keep
+    // detail instead of being starved: 2.5x the average with a 2Mbit floor.
+    // (MaxKbps is in Kbps, hence the +2000 floor.)
+    {
+      mfxU32 peak = (mfxU32)kbs_ * 5 / 2;
+      if (peak < (mfxU32)kbs_ + 2000)
+        peak = (mfxU32)kbs_ + 2000;
+      mfxEncParams_.mfx.MaxKbps = peak;
+    }
     mfxEncParams_.mfx.NumSlice = 1;
     mfxEncParams_.mfx.NumRefFrame = 0;
 
@@ -532,6 +546,12 @@ private:
     coding_option2_.Header.BufferId = MFX_EXTBUFF_CODING_OPTION2;
     coding_option2_.Header.BufferSz = sizeof(mfxExtCodingOption2);
     coding_option2_.RepeatPPS = MFX_CODINGOPTION_OFF;
+    // [LnDesk v289] QP ceiling guard. Intel MSDK/oneVPL honours MinQPI/MaxQPI
+    // only when the field is non-zero, so 0 stays "let the driver decide".
+    coding_option2_.MinQPI = qp_min_ > 0 ? (mfxU8)qp_min_ : 0;
+    coding_option2_.MaxQPI = qp_max_ > 0 ? (mfxU8)qp_max_ : 0;
+    coding_option2_.MinQPP = qp_min_ > 0 ? (mfxU8)qp_min_ : 0;
+    coding_option2_.MaxQPP = qp_max_ > 0 ? (mfxU8)qp_max_ : 0;
     extbuffers_[1] = (mfxExtBuffer *)&coding_option2_;
 
     // coding option3
@@ -606,11 +626,12 @@ int mfx_destroy_encoder(void *encoder) {
 
 void *mfx_new_encoder(void *handle, int64_t luid,
                       DataFormat dataFormat, int32_t w, int32_t h, int32_t kbs,
-                      int32_t framerate, int32_t gop) {
+                      int32_t framerate, int32_t gop, int32_t qp_min,
+                      int32_t qp_max) {
   VplEncoder *p = NULL;
   try {
     p = new VplEncoder(handle, luid, dataFormat, w, h, kbs, framerate,
-                       gop);
+                       gop, qp_min, qp_max);
     if (!p) {
       return NULL;
     }
@@ -663,7 +684,7 @@ int mfx_test_encode(int64_t *outLuids, int32_t *outVendors, int32_t maxDescNum, 
       
       VplEncoder *e = (VplEncoder *)mfx_new_encoder(
           (void *)adapter.get()->device_.Get(), currentLuid,
-          dataFormat, width, height, kbs, framerate, gop);
+          dataFormat, width, height, kbs, framerate, gop, 0, 0);
       if (!e)
         continue;
       if (e->native_->EnsureTexture(e->width_, e->height_)) {

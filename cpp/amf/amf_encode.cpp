@@ -76,6 +76,11 @@ private:
   int32_t bitRateIn_;
   int32_t frameRate_;
   int32_t gop_;
+  // [LnDesk v289] QP guardrail bounds (0 = disabled). AMF's H.264 encoder has
+  // no max-QP property at all (only HEVC/AV1 expose *_MAX_QP_*), so H.264 only
+  // gets the VBR + peak-rate headroom, never a QP ceiling.
+  int32_t qp_min_;
+  int32_t qp_max_;
   bool enable4K_ = false;
   bool full_range_ = false;
   bool bt709_ = false;
@@ -86,7 +91,8 @@ private:
 public:
   AMFEncoder(void *handle, amf::AMF_MEMORY_TYPE memoryType, amf_wstring codec,
              DataFormat dataFormat, int32_t width, int32_t height,
-             int32_t bitrate, int32_t framerate, int32_t gop) {
+             int32_t bitrate, int32_t framerate, int32_t gop, int32_t qp_min,
+             int32_t qp_max) {
     handle_ = handle;
     dataFormat_ = dataFormat;
     AMFMemoryType_ = memoryType;
@@ -95,6 +101,8 @@ public:
     bitRateIn_ = bitrate;
     frameRate_ = framerate;
     gop_ = (gop > 0 && gop < MAX_GOP) ? gop : MAX_GOP;
+    qp_min_ = qp_min;
+    qp_max_ = qp_max;
     enable4K_ = width > 1920 && height > 1080;
   }
 
@@ -259,10 +267,26 @@ private:
           AMFEncoder_->SetProperty(AMF_VIDEO_ENCODER_COLOR_BIT_DEPTH, eDepth_);
       AMF_CHECK_RETURN(res,
                        "SetProperty(AMF_VIDEO_ENCODER_COLOR_BIT_DEPTH  failed");
-      res = AMFEncoder_->SetProperty(AMF_VIDEO_ENCODER_RATE_CONTROL_METHOD,
-                                     AMF_VIDEO_ENCODER_RATE_CONTROL_METHOD_CBR);
+      // [LnDesk v289] VBR (was CBR) so the encoder can spend extra bits on
+      // detail instead of hard-clamping every frame to the average. AMF H.264
+      // exposes no max-QP property, so its quality floor comes solely from the
+      // peak-rate headroom set below.
+      res = AMFEncoder_->SetProperty(
+          AMF_VIDEO_ENCODER_RATE_CONTROL_METHOD,
+          AMF_VIDEO_ENCODER_RATE_CONTROL_METHOD_PEAK_CONSTRAINED_VBR);
       AMF_CHECK_RETURN(res,
                        "SetProperty AMF_VIDEO_ENCODER_RATE_CONTROL_METHOD");
+
+      // [LnDesk v274-equivalent] widen the peak so fast-motion bursts keep
+      // detail: 2.5x the average with a 2Mbit floor.
+      {
+        amf_int64 peak = (amf_int64)bitRateIn_ * 5 / 2;
+        if (peak < (amf_int64)bitRateIn_ + 2000000)
+          peak = (amf_int64)bitRateIn_ + 2000000;
+        res = AMFEncoder_->SetProperty(AMF_VIDEO_ENCODER_PEAK_BITRATE, peak);
+        AMF_CHECK_RETURN(
+            res, "SetProperty AMF_VIDEO_ENCODER_PEAK_BITRATE failed");
+      }
       if (enable4K_) {
         res = AMFEncoder_->SetProperty(AMF_VIDEO_ENCODER_PROFILE,
                                        AMF_VIDEO_ENCODER_PROFILE_HIGH);
@@ -348,11 +372,41 @@ private:
       AMF_CHECK_RETURN(
           res, "SetProperty AMF_VIDEO_ENCODER_HEVC_COLOR_BIT_DEPTH failed");
 
+      // [LnDesk v289] VBR (was CBR); see the H.264 branch for the rationale.
       res = AMFEncoder_->SetProperty(
           AMF_VIDEO_ENCODER_HEVC_RATE_CONTROL_METHOD,
-          AMF_VIDEO_ENCODER_HEVC_RATE_CONTROL_METHOD_CBR);
+          AMF_VIDEO_ENCODER_HEVC_RATE_CONTROL_METHOD_PEAK_CONSTRAINED_VBR);
       AMF_CHECK_RETURN(
           res, "SetProperty AMF_VIDEO_ENCODER_HEVC_RATE_CONTROL_METHOD failed");
+
+      // [LnDesk v274-equivalent] widen the VBR peak (2.5x average, 2Mbit floor).
+      {
+        amf_int64 peak = (amf_int64)bitRateIn_ * 5 / 2;
+        if (peak < (amf_int64)bitRateIn_ + 2000000)
+          peak = (amf_int64)bitRateIn_ + 2000000;
+        res =
+            AMFEncoder_->SetProperty(AMF_VIDEO_ENCODER_HEVC_PEAK_BITRATE, peak);
+        AMF_CHECK_RETURN(
+            res, "SetProperty AMF_VIDEO_ENCODER_HEVC_PEAK_BITRATE failed");
+      }
+
+      // [LnDesk v289] QP ceiling guard: AMF HEVC does expose per-frame-type
+      // max/min QP, so cap the QP here. Best-effort by design -- a missing
+      // property must only cost a log line, never a failed encoder init.
+      if (qp_max_ > 0) {
+        amf_int64 qmin = qp_min_ > 0 ? qp_min_ : 10;
+        auto try_set_qp = [&](const wchar_t *name, amf_int64 val) {
+          AMF_RESULT r = AMFEncoder_->SetProperty(name, val);
+          if (r != AMF_OK) {
+            LOG_WARN(std::string("amf hevc set qp option failed, result code: ") +
+                     std::to_string(int(r)));
+          }
+        };
+        try_set_qp(AMF_VIDEO_ENCODER_HEVC_MAX_QP_I, qp_max_);
+        try_set_qp(AMF_VIDEO_ENCODER_HEVC_MAX_QP_P, qp_max_);
+        try_set_qp(AMF_VIDEO_ENCODER_HEVC_MIN_QP_I, qmin);
+        try_set_qp(AMF_VIDEO_ENCODER_HEVC_MIN_QP_P, qmin);
+      }
 
       if (enable4K_) {
         res = AMFEncoder_->SetProperty(AMF_VIDEO_ENCODER_HEVC_TIER,
@@ -471,7 +525,8 @@ int amf_destroy_encoder(void *encoder) {
 
 void *amf_new_encoder(void *handle, int64_t luid,
                       DataFormat dataFormat, int32_t width, int32_t height,
-                      int32_t kbs, int32_t framerate, int32_t gop) {
+                      int32_t kbs, int32_t framerate, int32_t gop,
+                      int32_t qp_min, int32_t qp_max) {
   AMFEncoder *enc = NULL;
   try {
     amf_wstring codecStr;
@@ -483,7 +538,7 @@ void *amf_new_encoder(void *handle, int64_t luid,
       return NULL;
     }
     enc = new AMFEncoder(handle, memoryType, codecStr, dataFormat, width,
-                         height, kbs * 1000, framerate, gop);
+                         height, kbs * 1000, framerate, gop, qp_min, qp_max);
     if (enc) {
       if (AMF_OK == enc->initialize()) {
         return enc;
@@ -541,7 +596,7 @@ int amf_test_encode(int64_t *outLuids, int32_t *outVendors, int32_t maxDescNum, 
       
       AMFEncoder *e = (AMFEncoder *)amf_new_encoder(
           (void *)adapter.get()->device_.Get(), currentLuid,
-          dataFormat, width, height, kbs, framerate, gop);
+          dataFormat, width, height, kbs, framerate, gop, 0, 0);
       if (!e)
         continue;
       if (e->test() == AMF_OK) {

@@ -110,6 +110,10 @@ public:
   int quality_ = 0;
   int kbs_ = 0;
   int q_ = 0;
+  // [LnDesk v289] QP ceiling guard (0 = disabled). qp_min only matters for
+  // nvenc, which requires qmin>=0 alongside qmax for the max-QP cap to apply.
+  int qp_min_ = 0;
+  int qp_max_ = 0;
   int fps_ = 30;
   int gop_ = 0xFFFF;
   int thread_count_ = 1;
@@ -124,8 +128,8 @@ public:
 
   FFmpegRamEncoder(const char *name, const char *mc_name, int width, int height,
                    int pixfmt, int align, int fps, int gop, int rc, int quality,
-                   int kbs, int q, int thread_count, int gpu,
-                   RamEncodeCallback callback) {
+                   int kbs, int q, int qp_min, int qp_max, int thread_count,
+                   int gpu, RamEncodeCallback callback) {
     name_ = name;
     mc_name_ = mc_name ? mc_name : "";
     width_ = width;
@@ -138,6 +142,8 @@ public:
     quality_ = quality;
     kbs_ = kbs;
     q_ = q;
+    qp_min_ = qp_min;
+    qp_max_ = qp_max;
     thread_count_ = thread_count;
     gpu_ = gpu;
     callback_ = callback;
@@ -236,7 +242,7 @@ public:
       return false;
     }
     // util_encode::set_quality(c_->priv_data, name_, quality_);
-    util_encode::set_rate_control(c_, name_, rc_, q_);
+    util_encode::set_rate_control(c_, name_, rc_, q_, qp_min_, qp_max_);
     util_encode::set_gpu(c_->priv_data, name_, gpu_);
     util_encode::force_hw(c_->priv_data, name_);
     util_encode::set_others(c_->priv_data, name_);
@@ -410,14 +416,14 @@ private:
 extern "C" FFmpegRamEncoder *
 ffmpeg_ram_new_encoder(const char *name, const char *mc_name, int width,
                        int height, int pixfmt, int align, int fps, int gop,
-                       int rc, int quality, int kbs, int q, int thread_count,
-                       int gpu, int *linesize, int *offset, int *length,
-                       RamEncodeCallback callback) {
+                       int rc, int quality, int kbs, int q, int qp_min,
+                       int qp_max, int thread_count, int gpu, int *linesize,
+                       int *offset, int *length, RamEncodeCallback callback) {
   FFmpegRamEncoder *encoder = NULL;
   try {
     encoder = new FFmpegRamEncoder(name, mc_name, width, height, pixfmt, align,
-                                   fps, gop, rc, quality, kbs, q, thread_count,
-                                   gpu, callback);
+                                   fps, gop, rc, quality, kbs, q, qp_min,
+                                   qp_max, thread_count, gpu, callback);
     if (encoder) {
       if (encoder->init(linesize, offset, length)) {
         return encoder;

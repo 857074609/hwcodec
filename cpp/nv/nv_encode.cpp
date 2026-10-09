@@ -72,13 +72,18 @@ public:
   int32_t kbs_;
   int32_t framerate_;
   int32_t gop_;
+  // [LnDesk v289] QP ceiling guard (0 = disabled). NVENC has no "qmin/qmax"
+  // string option on the raw SDK path, so we drive the driver's own
+  // enableMinQP/enableMaxQP + minQP/maxQP blocks straight from rcParams.
+  int32_t qp_min_;
+  int32_t qp_max_;
   bool full_range_ = false;
   bool bt709_ = false;
   NV_ENC_CONFIG encodeConfig_ = {0};
 
   NvencEncoder(void *handle, int64_t luid, DataFormat dataFormat,
                int32_t width, int32_t height, int32_t kbs, int32_t framerate,
-               int32_t gop) {
+               int32_t gop, int32_t qp_min, int32_t qp_max) {
     handle_ = handle;
     luid_ = luid;
     dataFormat_ = dataFormat;
@@ -87,6 +92,8 @@ public:
     kbs_ = kbs;
     framerate_ = framerate;
     gop_ = gop;
+    qp_min_ = qp_min;
+    qp_max_ = qp_max;
 
     load_driver(&cuda_dl_, &nvenc_dl_);
   }
@@ -155,8 +162,37 @@ public:
     initializeParams.encodeConfig->gopLength =
         (gop_ > 0 && gop_ < MAX_GOP) ? gop_ : NVENC_INFINITE_GOPLENGTH;
     // rc method
+    // [LnDesk v289] VBR (was CBR) so the encoder can spend extra bits on
+    // detail instead of hard-clamping every frame to the average. Paired with
+    // the QP ceiling below so VBR cannot trade quality away to hit the target.
     initializeParams.encodeConfig->rcParams.rateControlMode =
-        NV_ENC_PARAMS_RC_CBR;
+        NV_ENC_PARAMS_RC_VBR;
+    // [LnDesk v274-equivalent] widen the VBR peak so fast-motion bursts
+    // (window drag / scrolling) keep detail: 2.5x average with a 2Mbit floor.
+    {
+      uint32_t avg = (uint32_t)(kbs_ * 1000);
+      uint32_t headroom = avg * 5 / 2;
+      if (headroom < avg + 2000000)
+        headroom = avg + 2000000;
+      initializeParams.encodeConfig->rcParams.maxBitRate = headroom;
+    }
+    // [LnDesk v289] QP ceiling guard: cap the QP so the rate control has a
+    // quality floor no matter how hard it squeezes. NVENC only honours this
+    // when BOTH min and max are enabled, hence the paired enableMinQP.
+    if (qp_max_ > 0) {
+      int32_t qmin = qp_min_ > 0 ? qp_min_ : 10;
+      NV_ENC_RC_PARAMS *rc = &initializeParams.encodeConfig->rcParams;
+      rc->enableMinQP = 1;
+      rc->enableMaxQP = 1;
+      rc->minQP.qpIntra = qmin;
+      rc->minQP.qpInterP = qmin;
+      rc->minQP.qpInterB = qmin;
+      rc->maxQP.qpIntra = qp_max_;
+      rc->maxQP.qpInterP = qp_max_;
+      rc->maxQP.qpInterB = qp_max_;
+      LOG_INFO(std::string("nvenc qmax guard: qmin=") + std::to_string(qmin) +
+               " qmax=" + std::to_string(qp_max_));
+    }
     // color
     if (dataFormat_ == H264) {
       setup_h264(initializeParams.encodeConfig);
@@ -338,11 +374,12 @@ int nv_destroy_encoder(void *encoder) {
 
 void *nv_new_encoder(void *handle, int64_t luid, DataFormat dataFormat,
                      int32_t width, int32_t height, int32_t kbs,
-                     int32_t framerate, int32_t gop) {
+                     int32_t framerate, int32_t gop, int32_t qp_min,
+                     int32_t qp_max) {
   NvencEncoder *e = NULL;
   try {
     e = new NvencEncoder(handle, luid, dataFormat, width, height, kbs,
-                         framerate, gop);
+                         framerate, gop, qp_min, qp_max);
     if (!e->init()) {
       goto _exit;
     }
@@ -406,7 +443,7 @@ int nv_test_encode(int64_t *outLuids, int32_t *outVendors, int32_t maxDescNum, i
 
       NvencEncoder *e = (NvencEncoder *)nv_new_encoder(
           (void *)adapter.get()->device_.Get(), currentLuid,
-          dataFormat, width, height, kbs, framerate, gop);
+          dataFormat, width, height, kbs, framerate, gop, 0, 0);
       if (!e)
         continue;
       if (e->native_->EnsureTexture(e->width_, e->height_)) {

@@ -232,7 +232,8 @@ struct CodecOptions {
 };
 
 bool set_rate_control(AVCodecContext *c, const std::string &name, int rc,
-                      int q) {
+                      int q, int qp_min, int qp_max) {
+  int ret;
   if (name.find("qsv") != std::string::npos) {
     // https://github.com/LizardByte/Sunshine/blob/3e47cd3cc8fd37a7a88be82444ff4f3c0022856b/src/video.cpp#L1635
     c->strict_std_compliance = FF_COMPLIANCE_UNOFFICIAL;
@@ -250,8 +251,8 @@ bool set_rate_control(AVCodecContext *c, const std::string &name, int rc,
     if (name.find(codec.codec_name) != std::string::npos) {
       auto it = codec.rc_values.find(rc);
       if (it != codec.rc_values.end()) {
-        int ret = av_opt_set(c->priv_data, codec.option_name.c_str(),
-                             it->second.c_str(), 0);
+        ret = av_opt_set(c->priv_data, codec.option_name.c_str(),
+                         it->second.c_str(), 0);
         if (ret < 0) {
           LOG_ERROR(codec.codec_name + " set opt " + codec.option_name + " " +
                     it->second + " failed, ret = " + av_err2str(ret));
@@ -281,6 +282,51 @@ bool set_rate_control(AVCodecContext *c, const std::string &name, int rc,
       headroom = c->bit_rate + 2000000;
     }
     c->rc_max_rate = headroom;
+  }
+
+  // [LnDesk v289] QP ceiling guard: under VBR the encoder is free to raise QP
+  // to hit the target bitrate, which is exactly what turns a burst (window
+  // drag / scrolling) into visible blocking. Cap the QP so quality has a floor
+  // no matter how hard the rate control squeezes. Verified against the ffmpeg
+  // 9.0.2 option tables:
+  //   - nvenc: `qmax` is a priv_data option, and nvenc.c:set_vbr() only sets
+  //     rc->enableMaxQP when BOTH qmin>=0 and qmax>=0 -- so qmax alone is a
+  //     silent no-op. We therefore set qmin (default 10) together with qmax.
+  //   - qsv:   `qmax` is a GLOBAL AVCodecContext option (options_table.h), not
+  //     a priv_data one; qsvenc.c reads avctx->qmax into extco2.MaxQPI. Write
+  //     avctx, not priv_data.
+  //   - amf:   only hevc/av1 expose max_qp_i/max_qp_p (amfenc_hevc.c); the
+  //     h264 amf encoder has no max-QP option at all, so AMF H.264 is skipped.
+  // All best-effort: a missing option must only cost a log line, never a
+  // failed encoder init.
+  if (rc == RC_VBR && qp_max > 0) {
+    int qmin = qp_min > 0 ? qp_min : 10;
+    if (name.find("nvenc") != std::string::npos) {
+      if ((ret = av_opt_set_int(c->priv_data, "qmin", qmin, 0)) < 0) {
+        LOG_ERROR(std::string("nvenc set qmin failed, ret = ") + av_err2str(ret));
+      }
+      if ((ret = av_opt_set_int(c->priv_data, "qmax", qp_max, 0)) < 0) {
+        LOG_ERROR(std::string("nvenc set qmax failed, ret = ") + av_err2str(ret));
+      }
+    } else if (name.find("qsv") != std::string::npos) {
+      c->qmin = qmin;
+      c->qmax = qp_max;
+    } else if (name.find("amf") != std::string::npos) {
+      if (name.find("h264") == std::string::npos) {
+        // AMF HEVC/AV1: per-frame-type max QP options.
+        if ((ret = av_opt_set_int(c->priv_data, "max_qp_i", qp_max, 0)) < 0) {
+          LOG_ERROR(std::string("amf set max_qp_i failed, ret = ") + av_err2str(ret));
+        }
+        if ((ret = av_opt_set_int(c->priv_data, "max_qp_p", qp_max, 0)) < 0) {
+          LOG_ERROR(std::string("amf set max_qp_p failed, ret = ") + av_err2str(ret));
+        }
+        if ((ret = av_opt_set_int(c->priv_data, "min_qp_i", qmin, 0)) < 0) {
+          LOG_ERROR(std::string("amf set min_qp_i failed, ret = ") + av_err2str(ret));
+        }
+      } else {
+        LOG_WARN(std::string("amf h264 has no max_qp option; qmax guard skipped"));
+      }
+    }
   }
 
   return true;

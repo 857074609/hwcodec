@@ -31,6 +31,14 @@ pub struct DynamicContext {
     pub kbitrate: i32,
     pub framerate: i32,
     pub gop: i32,
+    // [LnDesk v289] QP guardrail bounds. 0 means "not specified".
+    // qp_max lays down a QP ceiling so VBR rate control cannot over-quantize
+    // into visible block artifacts; qp_min is the matching floor (NVENC
+    // requires both to be set together for the guard to take effect).
+    #[serde(default)]
+    pub qp_min: i32,
+    #[serde(default)]
+    pub qp_max: i32,
 }
 
 unsafe impl Send for DynamicContext {}

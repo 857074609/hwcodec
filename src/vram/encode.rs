@@ -42,6 +42,8 @@ impl Encoder {
                 ctx.d.kbitrate,
                 ctx.d.framerate,
                 ctx.d.gop,
+                ctx.d.qp_min,
+                ctx.d.qp_max,
             );
             if codec.is_null() {
                 return Err(());

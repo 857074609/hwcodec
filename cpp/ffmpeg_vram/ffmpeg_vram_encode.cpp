@@ -76,13 +76,17 @@ public:
   int32_t kbs_;
   int32_t framerate_;
   int32_t gop_;
+  // [LnDesk v289] QP ceiling guard (0 = disabled); see util.cpp set_rate_control.
+  int32_t qp_min_ = 0;
+  int32_t qp_max_ = 0;
 
   const int align_ = 0;
   const bool full_range_ = false;
   const bool bt709_ = false;
   FFmpegVRamEncoder(void *handle, int64_t luid, DataFormat dataFormat,
                     int32_t width, int32_t height, int32_t kbs,
-                    int32_t framerate, int32_t gop) {
+                    int32_t framerate, int32_t gop, int32_t qp_min,
+                    int32_t qp_max) {
     handle_ = handle;
     luid_ = luid;
     dataFormat_ = dataFormat;
@@ -91,6 +95,8 @@ public:
     kbs_ = kbs;
     framerate_ = framerate;
     gop_ = gop;
+    qp_min_ = qp_min;
+    qp_max_ = qp_max;
   }
 
   ~FFmpegVRamEncoder() {}
@@ -134,7 +140,11 @@ public:
       return false;
     }
     // util_encode::set_quality(c_->priv_data, encoder_->name_, Quality_Default);
-    util_encode::set_rate_control(c_, encoder_->name_, RC_CBR, -1);
+    // [LnDesk v289] VBR (was CBR) so the encoder can spend more on detail,
+    // paired with the headroom + QP-ceiling guards in set_rate_control. QSV
+    // keeps its own VBR path there.
+    util_encode::set_rate_control(c_, encoder_->name_, RC_VBR, -1, qp_min_,
+                                  qp_max_);
     util_encode::set_others(c_->priv_data, encoder_->name_);
 
     hw_device_ctx_ = av_hwdevice_ctx_alloc(encoder_->device_type_);
@@ -432,11 +442,12 @@ extern "C" {
 FFmpegVRamEncoder *ffmpeg_vram_new_encoder(void *handle, int64_t luid,
                                            DataFormat dataFormat, int32_t width,
                                            int32_t height, int32_t kbs,
-                                           int32_t framerate, int32_t gop) {
+                                           int32_t framerate, int32_t gop,
+                                           int32_t qp_min, int32_t qp_max) {
   FFmpegVRamEncoder *encoder = NULL;
   try {
     encoder = new FFmpegVRamEncoder(handle, luid, dataFormat, width,
-                                    height, kbs, framerate, gop);
+                                    height, kbs, framerate, gop, qp_min, qp_max);
     if (encoder) {
       if (encoder->init()) {
         return encoder;
