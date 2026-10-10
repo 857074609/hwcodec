@@ -359,8 +359,10 @@ private:
     // `#define AV_PICTURE_TYPE_I AV_PICTURE_TYPE_I` 的转发宏，符号路径
     // 不稳定。字面量避开这层耦合。
     if (force_i) {
+      // 强制 IDR 仅依赖 pict_type = I（AVPictureType 枚举值，自 2011 至今不变）
+      // —— 不碰 key_frame：本 fork 的 FFmpeg 9.0.2 已删除 AVFrame::key_frame 字段，
+      // 改用 frame->flags & AV_FRAME_FLAG_KEY 读取（见 ffmpeg_ram_decode.cpp）。
       frame->pict_type = AV_PICTURE_TYPE_I;
-      frame->key_frame = 1;
     }
     if ((ret = avcodec_send_frame(c_, frame)) < 0) {
       LOG_ERROR(std::string("avcodec_send_frame failed, ret = ") + av_err2str(ret));

@@ -330,8 +330,9 @@ private:
     frame_->pts = ms;
     // [LnDesk v302b hwcodec-force-i] 同 RAM 路径：force_i 时置 pict_type = I 强制 IDR。
     if (force_i) {
+      // 同 RAM：强制 IDR 只靠 pict_type = I；本 fork FFmpeg 9.0.2 已删除
+      // AVFrame::key_frame 字段（见 ffmpeg_ram_decode.cpp 的 flags 读取方式）。
       frame_->pict_type = AV_PICTURE_TYPE_I;
-      frame_->key_frame = 1;
     }
     if ((ret = avcodec_send_frame(c_, frame_)) < 0) {
       LOG_ERROR(std::string("avcodec_send_frame failed, ret = ") + av_err2str(ret));
