@@ -13,8 +13,9 @@ void *nv_new_encoder(void *handle, int64_t luid,
                      int32_t bitrate, int32_t framerate, int32_t gop,
                      int32_t qp_min, int32_t qp_max);
 
+// [LnDesk v302b hwcodec-force-i] force_i 由 ffmpeg_vram 真正使用；nv 接受并忽略。
 int nv_encode(void *encoder, void *tex, EncodeCallback callback, void *obj,
-              int64_t ms);
+              int64_t ms, int force_i);
 
 int nv_destroy_encoder(void *encoder);
 

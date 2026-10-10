@@ -108,7 +108,9 @@ public:
 
   ~AMFEncoder() {}
 
-  AMF_RESULT encode(void *tex, EncodeCallback callback, void *obj, int64_t ms) {
+  // [LnDesk v302b hwcodec-force-i] force_i 透传但 AMF 路径按设计忽略（不强制 IDR）。
+  AMF_RESULT encode(void *tex, EncodeCallback callback, void *obj, int64_t ms,
+                   int force_i) {
     amf::AMFSurfacePtr surface = NULL;
     amf::AMFComputeSyncPointPtr pSyncPoint = NULL;
     AMF_RESULT res;
@@ -189,7 +191,7 @@ public:
       return AMF_FAIL;
     int32_t key_obj = 0;
     auto start = util::now();
-    res = encode(native, util_encode::vram_encode_test_callback, &key_obj, 0);
+    res = encode(native, util_encode::vram_encode_test_callback, &key_obj, 0, 0);
     int64_t elapsed = util::elapsed_ms(start);
     if (res == AMF_OK && key_obj == 1 && elapsed < TEST_TIMEOUT_MS) {
       return AMF_OK;
@@ -556,10 +558,10 @@ void *amf_new_encoder(void *handle, int64_t luid,
 }
 
 int amf_encode(void *encoder, void *tex, EncodeCallback callback, void *obj,
-               int64_t ms) {
+               int64_t ms, int force_i) {
   try {
     AMFEncoder *enc = (AMFEncoder *)encoder;
-    return -enc->encode(tex, callback, obj, ms);
+    return -enc->encode(tex, callback, obj, ms, force_i);
   } catch (const std::exception &e) {
           LOG_ERROR(std::string("encode failed: ") + e.what());
   }

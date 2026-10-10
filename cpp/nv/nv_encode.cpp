@@ -204,7 +204,9 @@ public:
     return true;
   }
 
-  int encode(void *texture, EncodeCallback callback, void *obj, int64_t ms) {
+  // [LnDesk v302b hwcodec-force-i] force_i 透传但 NVENC 路径按设计忽略（不强制 IDR）。
+  int encode(void *texture, EncodeCallback callback, void *obj, int64_t ms,
+             int force_i) {
     bool encoded = false;
     std::vector<NvPacket> vPacket;
     const NvEncInputFrame *pEncInput = pEnc_->GetNextInputFrame();
@@ -399,10 +401,10 @@ _exit:
 }
 
 int nv_encode(void *encoder, void *texture, EncodeCallback callback, void *obj,
-              int64_t ms) {
+              int64_t ms, int force_i) {
   try {
     NvencEncoder *e = (NvencEncoder *)encoder;
-    return e->encode(texture, callback, obj, ms);
+    return e->encode(texture, callback, obj, ms, force_i);
   } catch (const std::exception &e) {
     LOG_ERROR(std::string("encode failed: ") + e.what());
   }
@@ -451,7 +453,7 @@ int nv_test_encode(int64_t *outLuids, int32_t *outVendors, int32_t maxDescNum, i
         int32_t key_obj = 0;
         auto start = util::now();
         bool succ = nv_encode(e, e->native_->GetCurrentTexture(), util_encode::vram_encode_test_callback, &key_obj,
-                      0) == 0 && key_obj == 1;
+                      0, 0) == 0 && key_obj == 1;
         int64_t elapsed = util::elapsed_ms(start);
         if (succ && elapsed < TEST_TIMEOUT_MS) {
           outLuids[count] = currentLuid;

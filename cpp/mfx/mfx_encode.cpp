@@ -129,8 +129,9 @@ public:
     return MFX_ERR_NONE;
   }
 
-  int encode(ID3D11Texture2D *tex, EncodeCallback callback, void *obj,
-             int64_t ms) {
+  // [LnDesk v302b hwcodec-force-i] force_i 透传但 VPL 路径按设计忽略（不强制 IDR）。
+  int encode(ID3D11Texture2D *tex, EncodeCallback callback, void *obj, int64_t ms,
+             int force_i) {
     mfxStatus sts = MFX_ERR_NONE;
 
     int nEncSurfIdx =
@@ -656,9 +657,9 @@ void *mfx_new_encoder(void *handle, int64_t luid,
 }
 
 int mfx_encode(void *encoder, ID3D11Texture2D *tex, EncodeCallback callback,
-               void *obj, int64_t ms) {
+               void *obj, int64_t ms, int force_i) {
   try {
-    return ((VplEncoder *)encoder)->encode(tex, callback, obj, ms);
+    return ((VplEncoder *)encoder)->encode(tex, callback, obj, ms, force_i);
   } catch (const std::exception &e) {
     LOG_ERROR(std::string("Exception: ") + e.what());
   } catch (...) {
@@ -692,7 +693,7 @@ int mfx_test_encode(int64_t *outLuids, int32_t *outVendors, int32_t maxDescNum, 
         int32_t key_obj = 0;
         auto start = util::now();
         bool succ = mfx_encode(e, e->native_->GetCurrentTexture(), util_encode::vram_encode_test_callback, &key_obj,
-                       0) == 0 && key_obj == 1;
+                       0, 0) == 0 && key_obj == 1;
         int64_t elapsed = util::elapsed_ms(start);
         if (succ && elapsed < TEST_TIMEOUT_MS) {
           outLuids[count] = currentLuid;

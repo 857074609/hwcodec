@@ -11,8 +11,9 @@ void *mfx_new_encoder(void *handle, int64_t luid,
                       int32_t kbs, int32_t framerate, int32_t gop,
                       int32_t qp_min, int32_t qp_max);
 
+// [LnDesk v302b hwcodec-force-i] force_i 由 ffmpeg_vram 真正使用；mfx 接受并忽略。
 int mfx_encode(void *encoder, void *tex, EncodeCallback callback, void *obj,
-               int64_t ms);
+               int64_t ms, int force_i);
 
 int mfx_destroy_encoder(void *encoder);
 

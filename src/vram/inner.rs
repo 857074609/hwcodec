@@ -14,12 +14,17 @@ pub type NewEncoderCall = unsafe extern "C" fn(
     qp_max: i32,
 ) -> *mut c_void;
 
+// [LnDesk v302b hwcodec-force-i] VRAM 路径按设计不强制 IDR，但 EncodeCall 被
+// amf/mfx/nv/ffmpeg 四套后端共用，ffmpeg_vram_encode 已是 6 参（含 force_i），
+// 所以这里把共享签名统一成 6 参。amf/mfx/nv 的 encode 接受并忽略 force_i，
+// 仅 ffmpeg_vram 真正使用它。Rust 侧 Encoder::encode 永远传 0（不强制 IDR）。
 pub type EncodeCall = unsafe extern "C" fn(
     encoder: *mut c_void,
     tex: *mut c_void,
     callback: EncodeCallback,
     obj: *mut c_void,
     ms: i64,
+    force_i: c_int,
 ) -> c_int;
 
 pub type NewDecoderCall =
