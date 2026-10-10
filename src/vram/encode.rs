@@ -57,6 +57,10 @@ impl Encoder {
         }
     }
 
+    // [LnDesk v302b hwcodec-force-i] VRAM 路径按设计不强制 IDR（见 patches/
+    // patch_gop_continuity.py：VRAM 是 4 套独立 C 入口，暂不接线 force_i）。
+    // 底层 ffmpeg_vram_encode 已是 6 参（含 force_i），这里固定传 false，
+    // 保持 FFI 签名一致、又不改变 VRAM 的既有行为。
     pub fn encode(&mut self, tex: *mut c_void, ms: i64) -> Result<&mut Vec<EncodeFrame>, i32> {
         unsafe {
             (&mut *self.frames).clear();
@@ -66,6 +70,7 @@ impl Encoder {
                 Some(Self::callback),
                 self.frames as *mut _ as *mut c_void,
                 ms,
+                0 as c_int,
             );
             if result != 0 {
                 Err(result)

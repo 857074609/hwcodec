@@ -4,6 +4,7 @@ extern "C" {
 #include <libavutil/imgutils.h>
 #include <libavutil/log.h>
 #include <libavutil/opt.h>
+#include <libavutil/pixdesc.h>
 }
 
 #ifdef _WIN32
@@ -474,9 +475,11 @@ FFmpegVRamEncoder *ffmpeg_vram_new_encoder(void *handle, int64_t luid,
 }
 
 int ffmpeg_vram_encode(FFmpegVRamEncoder *encoder, void *texture,
-                       EncodeCallback callback, void *obj, int64_t ms) {
+                       EncodeCallback callback, void *obj, int64_t ms,
+                       int force_i) {
   try {
-    return encoder->encode(texture, callback, obj, ms);
+    // [LnDesk v302b hwcodec-force-i] force_i 透传给 encode。
+    return encoder->encode(texture, callback, obj, ms, force_i);
   } catch (const std::exception &e) {
     LOG_ERROR(std::string("ffmpeg_vram_encode failed, ") + std::string(e.what()));
   }

@@ -368,7 +368,9 @@ impl Encoder {
                         for attempt in 0..max_attempts {
                             let pts = (attempt as i64) * 33; // 33ms is an approximation for 30 FPS (1000 / 30)
                             let start = std::time::Instant::now();
-                            match encoder.encode(&yuv, pts) {
+                            // [LnDesk v302b hwcodec-force-i] 探测编码不强制 IDR，传 false
+                            // 保持原行为（编码器按 gop 自行决定关键帧）。
+                            match encoder.encode(&yuv, pts, false) {
                                 Ok(frames) => {
                                     let elapsed = start.elapsed().as_millis();
 
