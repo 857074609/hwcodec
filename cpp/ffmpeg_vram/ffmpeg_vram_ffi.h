@@ -18,8 +18,9 @@ void *ffmpeg_vram_new_encoder(void *handle, int64_t luid,
                               int32_t kbs, int32_t framerate, int32_t gop,
                               int32_t qp_min, int32_t qp_max);
 
+// [LnDesk v302b hwcodec-force-i] force_i != 0 => 本帧强制编成 IDR。
 int ffmpeg_vram_encode(void *encoder, void *tex, EncodeCallback callback,
-                       void *obj, int64_t ms);
+                       void *obj, int64_t ms, int force_i);
 int ffmpeg_vram_destroy_encoder(void *encoder);
 
 int ffmpeg_vram_test_encode(int64_t *outLuids, int32_t *outVendors, int32_t maxDescNum,

@@ -273,7 +273,9 @@ public:
     return true;
   }
 
-  int encode(const uint8_t *data, int length, const void *obj, uint64_t ms) {
+  // [LnDesk v302b hwcodec-force-i] force_i != 0 => 本帧强制 IDR。
+  int encode(const uint8_t *data, int length, const void *obj, uint64_t ms,
+             int force_i) {
     int ret;
 
     if ((ret = av_frame_make_writable(frame_)) != 0) {
@@ -293,7 +295,8 @@ public:
       tmp_frame = frame_;
     }
 
-    return do_encode(tmp_frame, obj, ms);
+    // [LnDesk v302b hwcodec-force-i] force_i 由调用方透传；0 时不动 pict_type（向后兼容）。
+    return do_encode(tmp_frame, obj, ms, force_i);
   }
 
   void free_encoder() {
@@ -342,10 +345,23 @@ private:
     return err;
   }
 
-  int do_encode(AVFrame *frame, const void *obj, int64_t ms) {
+  int do_encode(AVFrame *frame, const void *obj, int64_t ms, int force_i) {
     int ret;
     bool encoded = false;
     frame->pts = ms;
+    // [LnDesk v302b hwcodec-force-i] ffmpeg 的既定做法：pict_type = I 让编码器把本帧编成 IDR。
+    // force_i == 0 时不触碰该字段，行为与改动前完全一致。
+    //
+    // 用数字字面量 1（= AV_PICTURE_TYPE_I，见 libavutil/pixdesc.h 的
+    // AVPictureType 枚举，值自 2011 年起未变）而不是符号：
+    // bindgen 对 AVPictureType 生成的路径在不同 ffmpeg 版本下是
+    // `AVPictureType::AV_PICTURE_TYPE_I`，某些版本还会带上
+    // `#define AV_PICTURE_TYPE_I AV_PICTURE_TYPE_I` 的转发宏，符号路径
+    // 不稳定。字面量避开这层耦合。
+    if (force_i) {
+      frame->pict_type = AV_PICTURE_TYPE_I;
+      frame->key_frame = 1;
+    }
     if ((ret = avcodec_send_frame(c_, frame)) < 0) {
       LOG_ERROR(std::string("avcodec_send_frame failed, ret = ") + av_err2str(ret));
       return ret;
@@ -441,9 +457,10 @@ ffmpeg_ram_new_encoder(const char *name, const char *mc_name, int width,
 }
 
 extern "C" int ffmpeg_ram_encode(FFmpegRamEncoder *encoder, const uint8_t *data,
-                                 int length, const void *obj, uint64_t ms) {
+                                 int length, const void *obj, uint64_t ms,
+                                 int force_i) {
   try {
-    return encoder->encode(data, length, obj, ms);
+    return encoder->encode(data, length, obj, ms, force_i);
   } catch (const std::exception &e) {
     LOG_ERROR(std::string("ffmpeg_ram_encode failed, ") + std::string(e.what()));
   }

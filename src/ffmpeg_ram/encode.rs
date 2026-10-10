@@ -120,7 +120,14 @@ impl Encoder {
         }
     }
 
-    pub fn encode(&mut self, data: &[u8], ms: i64) -> Result<&mut Vec<EncodeFrame>, i32> {
+    /// [LnDesk v302b hwcodec-force-i] `force_i` 为真时本帧强制 IDR（透传到 C 层
+    /// `frame->pict_type`）。
+    pub fn encode(
+        &mut self,
+        data: &[u8],
+        ms: i64,
+        force_i: bool,
+    ) -> Result<&mut Vec<EncodeFrame>, i32> {
         unsafe {
             (&mut *self.frames).clear();
             let result = ffmpeg_ram_encode(
@@ -129,6 +136,7 @@ impl Encoder {
                 data.len() as _,
                 self.frames as *const _ as *const c_void,
                 ms,
+                force_i as c_int,
             );
             if result != 0 {
                 return Err(result);

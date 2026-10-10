@@ -20,8 +20,10 @@ void *ffmpeg_ram_new_encoder(const char *name, const char *mc_name, int width,
                              RamEncodeCallback callback);
 void *ffmpeg_ram_new_decoder(const char *name, int device_type,
                              int thread_count, RamDecodeCallback callback);
+// [LnDesk v302b hwcodec-force-i] force_i != 0 => 本帧强制编成 IDR（frame->pict_type = I）。
+// force_i == 0 => 与旧版逐字节一致，编码器按 gop 自行决定。
 int ffmpeg_ram_encode(void *encoder, const uint8_t *data, int length,
-                      const void *obj, int64_t ms);
+                      const void *obj, int64_t ms, int force_i);
 int ffmpeg_ram_decode(void *decoder, const uint8_t *data, int length,
                       const void *obj);
 void ffmpeg_ram_free_encoder(void *encoder);

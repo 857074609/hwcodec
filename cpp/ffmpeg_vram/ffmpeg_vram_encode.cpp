@@ -233,12 +233,14 @@ public:
     return true;
   }
 
-  int encode(void *texture, EncodeCallback callback, void *obj, int64_t ms) {
+  // [LnDesk v302b hwcodec-force-i] force_i != 0 => 本帧强制 IDR。
+  int encode(void *texture, EncodeCallback callback, void *obj, int64_t ms,
+             int force_i) {
 
     if (!convert(texture))
       return -1;
 
-    return do_encode(callback, obj, ms);
+    return do_encode(callback, obj, ms, force_i);
   }
 
   void destroy() {
@@ -321,10 +323,16 @@ private:
     }
     return false;
   }
-  int do_encode(EncodeCallback callback, const void *obj, int64_t ms) {
+  int do_encode(EncodeCallback callback, const void *obj, int64_t ms,
+                int force_i) {
     int ret;
     bool encoded = false;
     frame_->pts = ms;
+    // [LnDesk v302b hwcodec-force-i] 同 RAM 路径：force_i 时置 pict_type = I 强制 IDR。
+    if (force_i) {
+      frame_->pict_type = AV_PICTURE_TYPE_I;
+      frame_->key_frame = 1;
+    }
     if ((ret = avcodec_send_frame(c_, frame_)) < 0) {
       LOG_ERROR(std::string("avcodec_send_frame failed, ret = ") + av_err2str(ret));
       return ret;
@@ -547,7 +555,7 @@ int ffmpeg_vram_test_encode(int64_t *outLuids, int32_t *outVendors, int32_t maxD
           int32_t key_obj = 0;
           auto start = util::now();
           bool succ = ffmpeg_vram_encode(e, e->native_->GetCurrentTexture(), util_encode::vram_encode_test_callback,
-                                 &key_obj, 0) == 0 && key_obj == 1;
+                                 &key_obj, 0, 1) == 0 && key_obj == 1;
           int64_t elapsed = util::elapsed_ms(start);
           if (succ && elapsed < TEST_TIMEOUT_MS) {
             outLuids[count] = currentLuid;
